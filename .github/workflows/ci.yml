@@ -1,27 +1,56 @@
 name: PHP docker CI
 
 on:
- push:
-   branches:
-     - main
+  push:
+    branches:
+      - main
 
 jobs:
- test:
-   runs-on: ubuntu-latest
+  # Задача 1: Только сборка (Build)
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v3
 
-   steps:
-     - name: Clone repo
-       uses: actions/checkout@v3
+      - name: Build Docker images
+        run: docker compose build
 
-     - name: Start docker
-       run: docker compose up -d --build
+  # Задача 2: Тестирование (Test), запустится только после успешного build
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v3
 
-     - name: Install dependencies
-       run: docker compose exec -T php composer install
+      # Подменяем рабочий .env файл тестовым
+      - name: Setup test environment
+        run: cp .env.test .env
 
-     - name: Run tests
-       run: docker compose exec -T php vendor/bin/phpunit tests
+      - name: Start docker
+        run: docker compose up -d --build
 
-     - name: Stop containers
-       if: always()
-       run: docker compose down
+      # Даем время сервисам (особенно базе данных) полностью запуститься
+      - name: Wait for services
+        run: sleep 15
+
+      # Проверяем, что все контейнеры имеют статус "Up"
+      - name: Check containers
+        run: docker ps
+
+      - name: Install dependencies
+        run: docker compose exec -T php composer install
+
+      - name: Run tests
+        run: docker compose exec -T php vendor/bin/phpunit tests
+
+      # Этот шаг сработает только если тесты (или предыдущие шаги) упадут ❌
+      - name: Show logs on error
+        if: failure()
+        run: docker compose logs
+
+      # Останавливаем контейнеры в любом случае (даже при ошибках)
+      - name: Stop containers
+        if: always()
+        run: docker compose down
